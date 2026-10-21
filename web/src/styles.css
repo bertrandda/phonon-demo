@@ -494,3 +494,8 @@ small,
   height: 36px;
   min-width: 0;
 }
+
+.segmented.playback button {
+  flex: none;
+  padding: 6px 12px;
+}

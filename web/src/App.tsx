@@ -2,17 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Lang, ModelConfigResponse, ModelsResponse, SpeechStats, Voice } from '../../shared/types.ts';
 import { DEFAULT_SEED, DEFAULT_TEMPERATURE } from '../../shared/types.ts';
 import { api, TtsClient } from './api.ts';
-import { encodeWav, StreamPlayer } from './audio/StreamPlayer.ts';
+import { concatPcm, encodeWav, StreamPlayer } from './audio/StreamPlayer.ts';
 import { ConfigPanel, type Settings } from './components/ConfigPanel.tsx';
 import { History, type HistoryEntry } from './components/History.tsx';
 import { ModelPicker } from './components/ModelPicker.tsx';
-import { PlayerPanel, type Status } from './components/PlayerPanel.tsx';
+import { PlayerPanel, type Playback, type Status } from './components/PlayerPanel.tsx';
 import { SAMPLES, TextInput } from './components/TextInput.tsx';
 import { VoicePicker } from './components/VoicePicker.tsx';
 
 const SAMPLE_RATE = 24000;
 const tts = new TtsClient();
 const player = new StreamPlayer();
+const PLAYBACK_KEY = 'phonon-demo:playback';
+
+function storedPlayback(): Playback {
+  try {
+    return localStorage.getItem(PLAYBACK_KEY) === 'complete' ? 'complete' : 'stream';
+  } catch {
+    return 'stream';
+  }
+}
 
 function initialSettings(lang: Lang): Settings {
   return { lang, quant: 'q8', rewrites: 'default', conditions: {}, voice: 'default', temperature: DEFAULT_TEMPERATURE, seed: DEFAULT_SEED };
@@ -32,6 +41,7 @@ export function App() {
   const [peaks, setPeaks] = useState<number[]>([]);
   const [stats, setStats] = useState<SpeechStats | null>(null);
   const [wavUrl, setWavUrl] = useState<string | null>(null);
+  const [playback, setPlayback] = useState<Playback>(storedPlayback);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const chunks = useRef<Float32Array[]>([]);
   const nextHistoryId = useRef(1);
@@ -105,9 +115,19 @@ export function App() {
     });
   };
 
+  const changePlayback = (mode: Playback) => {
+    setPlayback(mode);
+    try {
+      localStorage.setItem(PLAYBACK_KEY, mode);
+    } catch {
+      // Not remembered across reloads; the choice still applies.
+    }
+  };
+
   const generate = () => {
     if (!model) return;
-    // Started here, in the click, so the browser lets it play.
+    const streaming = playback === 'stream';
+    // Started here, in the click, so the browser lets it play, even when playback waits for the end.
     player.start(SAMPLE_RATE);
     chunks.current = [];
     setPeaks([]);
@@ -125,7 +145,7 @@ export function App() {
         onStart: () => setStatus({ kind: 'streaming' }),
         onChunk: (pcm) => {
           chunks.current.push(pcm);
-          player.push(pcm);
+          if (streaming) player.push(pcm);
           let peak = 0;
           for (const s of pcm) peak = Math.max(peak, Math.abs(s));
           setPeaks((p) => [...p, peak]);
@@ -133,6 +153,7 @@ export function App() {
         onDone: (st) => {
           setStats(st);
           setStatus({ kind: 'done' });
+          if (!streaming && !st.cancelled && chunks.current.length > 0) player.push(concatPcm(chunks.current));
           if (chunks.current.length > 0) {
             const url = URL.createObjectURL(encodeWav(chunks.current, SAMPLE_RATE));
             setWavUrl(url);
@@ -198,6 +219,8 @@ export function App() {
               onGenerate={generate}
               onStop={stop}
               wavUrl={wavUrl}
+              playback={playback}
+              onPlaybackChange={changePlayback}
             />
             <VoicePicker
               voices={voices}

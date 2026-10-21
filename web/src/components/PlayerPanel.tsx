@@ -10,6 +10,9 @@ export type Status =
   | { kind: 'done' }
   | { kind: 'error'; message: string };
 
+/** `stream` plays chunks as they arrive; `complete` waits for the whole utterance. */
+export type Playback = 'stream' | 'complete';
+
 interface Props {
   status: Status;
   /** Peak amplitude of each 80 ms chunk received. */
@@ -20,6 +23,8 @@ interface Props {
   onGenerate: () => void;
   onStop: () => void;
   wavUrl: string | null;
+  playback: Playback;
+  onPlaybackChange: (mode: Playback) => void;
 }
 
 const mb = (n: number) => `${(n / 1e6).toFixed(1)} Mo`;
@@ -48,7 +53,7 @@ function Waveform({ peaks }: { peaks: number[] }) {
   return <canvas ref={canvas} className="waveform" />;
 }
 
-export function PlayerPanel({ status, peaks, stats, sampleRate, canGenerate, onGenerate, onStop, wavUrl }: Props) {
+export function PlayerPanel({ status, peaks, stats, sampleRate, canGenerate, onGenerate, onStop, wavUrl, playback, onPlaybackChange }: Props) {
   const busy = ['connecting', 'downloading', 'loading', 'streaming'].includes(status.kind);
   const audioSeconds = stats ? stats.samples / sampleRate : (peaks.length * 1920) / sampleRate;
 
@@ -67,10 +72,21 @@ export function PlayerPanel({ status, peaks, stats, sampleRate, canGenerate, onG
         <span className="status">
           {status.kind === 'connecting' && 'Connexion…'}
           {status.kind === 'loading' && 'Chargement du modèle en mémoire…'}
-          {status.kind === 'streaming' && `Lecture en streaming · ${audioSeconds.toFixed(1)} s`}
+          {status.kind === 'streaming' &&
+            (playback === 'stream'
+              ? `Lecture en streaming · ${audioSeconds.toFixed(1)} s`
+              : `Génération · ${audioSeconds.toFixed(1)} s, lecture à la fin`)}
           {status.kind === 'done' && (stats?.cancelled ? 'Interrompu' : 'Terminé')}
           {status.kind === 'downloading' && 'Téléchargement depuis Hugging Face…'}
         </span>
+        <div className="segmented playback" title="Mode de lecture">
+          <button className={playback === 'stream' ? 'active' : ''} onClick={() => onPlaybackChange('stream')} disabled={busy}>
+            Streaming
+          </button>
+          <button className={playback === 'complete' ? 'active' : ''} onClick={() => onPlaybackChange('complete')} disabled={busy}>
+            Après génération
+          </button>
+        </div>
         {wavUrl && !busy && (
           <a className="button" href={wavUrl} download="phonon.wav">
             ⬇ WAV

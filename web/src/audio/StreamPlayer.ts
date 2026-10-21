@@ -37,6 +37,17 @@ export class StreamPlayer {
   }
 }
 
+/** Joins PCM chunks into one buffer. */
+export function concatPcm(chunks: Float32Array[]): Float32Array {
+  const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
 /** Mono float PCM as a 16-bit WAV file. */
 export function encodeWav(chunks: Float32Array[], sampleRate: number): Blob {
   const samples = chunks.reduce((n, c) => n + c.length, 0);
